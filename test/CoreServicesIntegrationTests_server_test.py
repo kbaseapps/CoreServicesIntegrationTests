@@ -76,14 +76,23 @@ class CoreServicesIntegrationTestsTest(unittest.TestCase):
     def getContext(self):
         return self.__class__.ctx
 
+    def textToFile(self, text, file_path):
+        with open(file_path, 'w') as f:
+            f.write(text)
+
+    def fileToText(self, file_path):
+        ret = None
+        with open(file_path, 'r') as f:
+            ret = f.read()
+        return ret
+
+
     # NOTE: According to Python unittest naming rules test method names should start from 'test'. # noqa
     def test_shock_handle_ws(self):
         test_phrase = "Hi there!"
         path_to_temp_file = "/kb/module/work/tmp/temp_" + str(time.time()) + ".fq"
-        with open(path_to_temp_file, 'w') as f:
-            f.write(test_phrase)
-        dfu = DataFileUtil(os.environ['SDK_CALLBACK_URL'],
-                           token=self.ctx['token'])
+        self.textToFile(test_phrase, path_to_temp_file)
+        dfu = DataFileUtil(os.environ['SDK_CALLBACK_URL'], token=self.ctx['token'])
         uploaded = dfu.file_to_shock({'file_path': path_to_temp_file,
                                       'make_handle': 1})
         fhandle = uploaded['handle']
@@ -91,10 +100,7 @@ class CoreServicesIntegrationTestsTest(unittest.TestCase):
         data = {'hid': fhandle['hid']}
         obj_name = 'TestObject.1'
         info = self.getWsClient().save_objects({'workspace': self.getWsName(),
-                                                'objects': [{'type': 'Empty.AHandle',
-                                                             'data': data,
-                                                             'name': obj_name
-                                                            }]})[0]
+                'objects': [{'type': 'Empty.AHandle', 'data': data, 'name': obj_name}]})[0]
         self.assertEqual(info[1], obj_name)
         ref = self.getWsName() + '/' + obj_name
         handle_data = self.getWsClient().get_objects([{'ref': ref}])[0]['data']
@@ -102,7 +108,28 @@ class CoreServicesIntegrationTestsTest(unittest.TestCase):
         hid = handle_data['hid']
         path_to_temp_file2 = "/kb/module/work/tmp/temp2_" + str(time.time()) + ".fq"
         dfu.shock_to_file({'handle_id': hid, 'file_path': path_to_temp_file2})
-        phrase2 = ""
-        with open(path_to_temp_file2, 'r') as f:
-            phrase2 = f.read()
-        self.assertEqual(test_phrase, phrase2)
+        self.assertEqual(test_phrase, self.fileToText(path_to_temp_file2))
+
+
+    def test_shock_copy_node(self):
+        test_phrase = "Hi there!"
+        path_to_temp_file = "/kb/module/work/tmp/temp_copy_" + str(time.time()) + ".fq"
+        self.textToFile(test_phrase, path_to_temp_file)
+        dfu = DataFileUtil(os.environ['SDK_CALLBACK_URL'], token=self.ctx['token'])
+        attributes = {'foo': 'bar'}
+        shock_id = dfu.file_to_shock({'file_path': path_to_temp_file,
+                                      'attributes': attributes})['shock_id']
+        # Check what's saved
+        os.remove(path_to_temp_file)
+        node_info = dfu.shock_to_file({'shock_id': shock_id, 'file_path': path_to_temp_file})
+        self.assertEqual(test_phrase, self.fileToText(path_to_temp_file))
+        self.assertEqual(node_info.get('attributes'), attributes,
+                         "Unexpected attributes in node info: " + str(node_info))
+        # Let's copy shock node
+        shock_id2 = dfu.copy_shock_node({'shock_id': shock_id})['shock_id']
+        path_to_temp_file2 = "/kb/module/work/tmp/temp_copy2_" + str(time.time()) + ".fq"
+        node_info2 = dfu.shock_to_file({'shock_id': shock_id2, 'file_path': path_to_temp_file2})
+        self.assertEqual(test_phrase, self.fileToText(path_to_temp_file2))
+        self.assertEqual(node_info2.get('attributes'), attributes,
+                         "Unexpected attributes in node info: " + str(node_info2))
+
